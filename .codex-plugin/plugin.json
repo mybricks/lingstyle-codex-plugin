@@ -1,0 +1,14 @@
+{
+  "name": "lingstyle",
+  "version": "0.1.0",
+  "description": "Project-local task-first workflow and task canvas",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Lingstyle",
+    "shortDescription": "Project tasks and overview",
+    "developerName": "Lingstyle",
+    "category": "Productivity"
+  },
+  "mcpServers": "./.mcp.json",
+  "repository": "https://github.com/mybricks/lingstyle-codex-plugin"
+}

@@ -1,0 +1,20 @@
+{
+  "name": "lingstyle-git",
+  "interface": {
+    "displayName": "Lingstyle Git"
+  },
+  "plugins": [
+    {
+      "name": "lingstyle",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

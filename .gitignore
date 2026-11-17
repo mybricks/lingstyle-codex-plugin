@@ -1,0 +1,10 @@
+# Local dependencies, logs and OS/editor files
+node_modules/
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.tmp
+.env
+.env.*
