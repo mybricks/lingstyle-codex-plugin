@@ -3,6 +3,7 @@ import { createRequire as __createRequire } from 'node:module'; const require = 
 // packages/codex-plugin/src/mcp/index.mjs
 import { createInterface } from "node:readline";
 import { readFile as readFile2 } from "node:fs/promises";
+import path2 from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // packages/core/src/cli/daemon-client.mjs
@@ -135,14 +136,13 @@ var html = await readFile2(
 var tools = [
   {
     name: "open_task_canvas",
-    description: "Open the current project's task canvas fullscreen inside Codex. Supply the absolute project directory; taskPath defaults to the current branch's .lingchuang task document.",
+    description: "Open the task canvas fullscreen inside Codex for one or more repositories. Supply the absolute project directories of every repository whose tasks you will read or change, in a single call. Each repository's taskPath defaults to its current branch's .lingchuang task document.",
     inputSchema: {
       type: "object",
       properties: {
-        projectDir: { type: "string" },
-        taskPath: { type: "string" }
+        projectDirs: { type: "array", items: { type: "string" }, minItems: 1 }
       },
-      required: ["projectDir"],
+      required: ["projectDirs"],
       additionalProperties: false
     },
     _meta: {
@@ -154,11 +154,13 @@ var tools = [
   },
   {
     name: "read_task_canvas",
-    description: "Read current task canvas data for a project and task document.",
+    description: "Read current task canvas data for one or more repositories.",
     inputSchema: {
       type: "object",
-      properties: { projectDir: { type: "string" }, taskPath: { type: "string" } },
-      required: ["projectDir", "taskPath"],
+      properties: {
+        projectDirs: { type: "array", items: { type: "string" }, minItems: 1 }
+      },
+      required: ["projectDirs"],
       additionalProperties: false
     },
     annotations: { readOnlyHint: true },
@@ -188,9 +190,20 @@ var tools = [
   }
 ];
 async function readCanvas(args) {
-  if (typeof args.projectDir !== "string" || typeof args.taskPath !== "string" || !args.taskPath)
-    throw Error("\u7F3A\u5C11\u9879\u76EE\u6216\u4EFB\u52A1\u8DEF\u5F84");
-  return loadCanvasData(await ensureDaemon(), { projectDir: args.projectDir, taskPath: args.taskPath });
+  const dirs = args.projectDirs;
+  if (!Array.isArray(dirs) || !dirs.length)
+    throw Error("\u7F3A\u5C11 projectDirs");
+  if (dirs.some((dir) => typeof dir !== "string" || !path2.isAbsolute(dir)))
+    throw Error("projectDirs \u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84\u6570\u7EC4");
+  return loadCanvasData(await ensureDaemon(), { projectDirs: dirs.map((projectDir) => ({ projectDir })) });
+}
+async function canvasUrlFor(projectDir, taskPath) {
+  if (typeof projectDir !== "string" || !path2.isAbsolute(projectDir))
+    throw Error("projectDir \u5FC5\u987B\u662F\u7EDD\u5BF9\u8DEF\u5F84");
+  const { canvasUrl } = await loadCanvasData(await ensureDaemon(), {
+    projectDirs: [{ projectDir, taskPath }]
+  });
+  return canvasUrl;
 }
 async function handle(message) {
   switch (message.method) {
@@ -223,6 +236,7 @@ async function handle(message) {
     case "resources/read": {
       if (message.params?.uri !== uri)
         throw Error("Unknown resource");
+      const { origin } = await ensureDaemon();
       return {
         contents: [
           {
@@ -230,8 +244,8 @@ async function handle(message) {
             mimeType: "text/html;profile=mcp-app",
             text: html,
             _meta: {
-              ui: { csp: { connectDomains: [] } },
-              "openai/widgetCSP": { connect_domains: [] },
+              ui: { csp: { connectDomains: [origin] } },
+              "openai/widgetCSP": { connect_domains: [origin] },
               "openai/widgetPrefersBorder": false,
               "openai/ui": {
                 preferredDisplayMode: "fullscreen",
@@ -247,13 +261,18 @@ async function handle(message) {
         const name = message.params?.name;
         const args = message.params.arguments || {};
         if (name === "update_task_statuses") {
-          const data2 = await readCanvas(args);
-          const url = new URL(data2.canvasUrl);
+          const canvasUrl = await canvasUrlFor(args.projectDir, args.taskPath);
+          const url = new URL(canvasUrl);
           url.pathname = "/api/tasks";
           const response = await fetch(url, {
             method: "POST",
             headers: { "content-type": "application/json", "x-task-canvas": "1" },
-            body: JSON.stringify({ expectedContent: args.expectedContent, transitions: args.transitions }),
+            body: JSON.stringify({
+              projectDir: args.projectDir,
+              taskPath: args.taskPath,
+              expectedContent: args.expectedContent,
+              transitions: args.transitions
+            }),
             signal: AbortSignal.timeout(5e3)
           });
           const updated = await response.json();
@@ -262,22 +281,22 @@ async function handle(message) {
           return { content: [{ type: "text", text: "\u4EFB\u52A1\u72B6\u6001\u5DF2\u5728\u672C\u5730\u66F4\u65B0" }], structuredContent: updated };
         }
         if (name === "read_task_canvas") {
-          const taskData = await readCanvas(args);
+          const taskData2 = await readCanvas(args);
           return {
             content: [{ type: "text", text: "\u4EFB\u52A1\u6570\u636E\u5DF2\u66F4\u65B0" }],
-            structuredContent: taskData
+            structuredContent: taskData2
           };
         }
         if (name !== "open_task_canvas")
           throw Error("Unknown tool");
-        const state = await ensureDaemon();
-        const data = await loadCanvasData(state, args);
+        const taskData = await readCanvas(args);
         const widgetData = {
-          ...data,
+          ...taskData,
           preferredDisplayMode: "fullscreen"
         };
+        const label = taskData.repos.map((r) => r.projectDir.split("/").filter(Boolean).pop() || r.projectDir).join("\u3001");
         return {
-          content: [{ type: "text", text: `\u4EFB\u52A1\u753B\u5E03\uFF1A${data.taskPath}` }],
+          content: [{ type: "text", text: `\u4EFB\u52A1\u753B\u5E03\uFF1A${label}` }],
           structuredContent: widgetData,
           _meta: { "openai/outputTemplate": uri, widgetData }
         };

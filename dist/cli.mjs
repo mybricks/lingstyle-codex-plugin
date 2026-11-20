@@ -155,7 +155,7 @@ try {
       "--project must be absolute and --task, if provided, must be project-relative"
     );
   const state = await ensureDaemon();
-  const { canvasUrl } = await loadCanvasData(state, { projectDir, taskPath });
+  const { canvasUrl } = await loadCanvasData(state, { projectDirs: [{ projectDir, taskPath }] });
   console.log(canvasUrl);
 } catch (error) {
   console.error(error.message);

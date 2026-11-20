@@ -1,0 +1,29 @@
+{
+  "description": "Refresh open task canvases after agent activity.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/hooks/refresh.mjs\" PostToolUse",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks\\refresh.mjs\" PostToolUse",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/hooks/refresh.mjs\" Stop",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks\\refresh.mjs\" Stop",
+            "timeout": 3
+          }
+        ]
+      }
+    ]
+  }
+}

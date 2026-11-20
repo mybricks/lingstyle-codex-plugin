@@ -5857,7 +5857,7 @@ var require_yaml = __commonJS({
 // packages/core/src/daemon/index.mjs
 import { createServer } from "node:http";
 import { randomBytes, timingSafeEqual, createHash } from "node:crypto";
-import { mkdir, writeFile as writeFile2, rename, unlink, readFile as readFile2, stat } from "node:fs/promises";
+import { mkdir, writeFile as writeFile2, rename, unlink, readFile as readFile2, stat, open } from "node:fs/promises";
 import path2 from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -5931,23 +5931,22 @@ async function getTaskData(a) {
   if (overview?.trim()) {
     try {
       overviewDoc = import_yaml.default.parse(overview);
-      if (overviewDoc?.version !== 2 || typeof overviewDoc.root?.title !== "string" || !Array.isArray(overviewDoc.pages) || !Array.isArray(overviewDoc.components))
-        throw Error("\u9700\u8981 version: 2\u3001root.title\u3001pages \u548C components");
-      const optionalNodes = [overviewDoc.endpoints];
-      if (optionalNodes.some((nodes) => nodes !== void 0 && !Array.isArray(nodes)))
-        throw Error("endpoints \u5FC5\u987B\u662F\u6570\u7EC4");
-      if ([
-        ...overviewDoc.pages,
-        ...overviewDoc.components,
-        ...overviewDoc.endpoints ?? []
-      ].some(
-        (n) => !n || typeof n.id !== "string" || typeof n.title !== "string" || n.tasks !== void 0 && (!Array.isArray(n.tasks) || n.tasks.some((t) => typeof t !== "string")) || n.parent !== void 0 && typeof n.parent !== "string" && (!Array.isArray(n.parent) || n.parent.some((p) => typeof p !== "string")) || n.route !== void 0 && typeof n.route !== "string" || n.flow !== void 0 && typeof n.flow !== "string"
+      const KINDS = ["function", "component", "page", "endpoint", "config", "data", "feature"];
+      const isObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+      const hasOnlyKeys = (value, keys) => isObject(value) && Object.keys(value).every((key) => keys.includes(key));
+      if (!hasOnlyKeys(overviewDoc, ["version", "root", "defs", "changes"]) || overviewDoc.version !== 3 || !hasOnlyKeys(overviewDoc.root, ["title"]) || typeof overviewDoc.root.title !== "string" || !overviewDoc.root.title.trim() || !Array.isArray(overviewDoc.defs) || !Array.isArray(overviewDoc.changes))
+        throw Error("\u9700\u8981 version: 3\u3001root.title\u3001defs \u6570\u7EC4\u4E0E changes \u6570\u7EC4");
+      if (new Set(overviewDoc.defs.map((def) => def?.id)).size !== overviewDoc.defs.length || overviewDoc.defs.some(
+        (def) => !hasOnlyKeys(def, ["id", "title", "kind", "file", "symbol", "route", "desc"]) || typeof def.id !== "string" || !def.id.trim() || def.id !== def.id.trim() || def.id === "root" || typeof def.title !== "string" || !def.title.trim() || !KINDS.includes(def.kind) || ["file", "symbol", "route", "desc"].some((field) => def[field] !== void 0 && typeof def[field] !== "string")
       ))
-        throw Error("\u9875\u9762\u3001\u7EC4\u4EF6\u6216\u63A5\u53E3\u7684 id\u3001title\u3001parent\u3001tasks \u6216 route \u683C\u5F0F\u65E0\u6548");
-      if (overviewDoc.requirements !== void 0 && (!Array.isArray(overviewDoc.requirements) || overviewDoc.requirements.some(
-        (n) => !n || n.tasks !== void 0 && !Array.isArray(n.tasks)
-      )))
-        throw Error("requirements \u683C\u5F0F\u65E0\u6548");
+        throw Error("defs \u4E2D\u5B58\u5728\u683C\u5F0F\u65E0\u6548\u6216\u91CD\u590D\u7684\u8282\u70B9\u5B9A\u4E49\uFF0C\u9700\u8981\u552F\u4E00\u3001\u975E\u7A7A\u4E14\u65E0\u9996\u5C3E\u7A7A\u767D\u7684\u5B57\u7B26\u4E32 id\uFF08\u4E0D\u80FD\u4E3A root\uFF09\u3001\u975E\u7A7A title \u4E0E\u5408\u6CD5 kind");
+      const defIds = new Set(overviewDoc.defs.map((def) => def.id));
+      const isRef = (ref) => typeof ref === "string" && defIds.has(ref);
+      const isCheck = (check) => hasOnlyKeys(check, ["title", "severity", "desc"]) && typeof check.title === "string" && !!check.title.trim() && ["block", "critical", "nit", "suggest"].includes(check.severity) && typeof check.desc === "string" && !!check.desc.trim();
+      if (new Set(overviewDoc.changes.map((change) => change?.ref)).size !== overviewDoc.changes.length || overviewDoc.changes.some(
+        (change) => !hasOnlyKeys(change, ["ref", "desc", "tasks", "flow", "impacts", "checks"]) || !isRef(change.ref) || change.desc !== void 0 && typeof change.desc !== "string" || change.tasks !== void 0 && (!Array.isArray(change.tasks) || change.tasks.some((task) => typeof task !== "string")) || change.flow !== void 0 && typeof change.flow !== "string" || change.impacts !== void 0 && (!Array.isArray(change.impacts) || new Set(change.impacts).size !== change.impacts.length || change.impacts.some((ref) => !isRef(ref))) || change.checks !== void 0 && (!Array.isArray(change.checks) || !change.checks.every(isCheck))
+      ))
+        throw Error("changes \u4E2D\u5B58\u5728\u683C\u5F0F\u65E0\u6548\u7684\u6539\u52A8\u70B9\u3001\u91CD\u590D\u6216\u65E0\u6548 ref\uFF1Bimpacts \u4EC5\u5141\u8BB8\u552F\u4E00\u4E14\u6709\u6548\u7684 ref \u5B57\u7B26\u4E32\uFF1Bchecks \u6BCF\u9879\u4EC5\u5141\u8BB8\u975E\u7A7A title\u3001\u5408\u6CD5 status \u4E0E\u975E\u7A7A desc");
     } catch (e) {
       overviewError = e.message;
       overviewDoc = null;
@@ -5967,6 +5966,19 @@ async function getTaskData(a) {
 var updates = /* @__PURE__ */ new Map();
 var statusLine = /^(\s*-\s*(?:\*{1,2})?\s*状态\s*(?:\*{1,2})?\s*[：:]\s*)([^\r\n]+)(\r?)$/m;
 var updatedAtLine = /^(\s*-\s*(?:\*{1,2})?\s*更新时间\s*(?:\*{1,2})?\s*[：:]\s*)([^\r\n]+)(\r?)$/m;
+async function getMultiRepoData(items) {
+  if (!Array.isArray(items) || !items.length || items.some((item) => !item || typeof item.projectDir !== "string" || !path.isAbsolute(item.projectDir))) {
+    throw Error("projectDirs must be a non-empty array of absolute paths");
+  }
+  const repos = await Promise.all(items.map(async ({ projectDir, taskPath }) => {
+    try {
+      return await getTaskData({ projectDir, taskPath });
+    } catch (e) {
+      return { projectDir, taskPath: null, overviewPath: null, tasks: null, overview: null, overviewDoc: null, overviewError: e.message };
+    }
+  }));
+  return { repos };
+}
 async function updateTaskStatuses(project, input) {
   if (typeof input.expectedContent !== "string" || !Array.isArray(input.transitions) || !input.transitions.length || input.transitions.length > 1e3 || input.transitions.some((item) => !item || typeof item.taskId !== "string" || !/^T-\d+$/.test(item.taskId) || !["\u5DF2\u5B8C\u6210", "\u5F85\u4EA4\u63A5"].includes(item.status)) || new Set(input.transitions.map((item) => item.taskId)).size !== input.transitions.length) {
     throw Error("\u4EFB\u52A1\u72B6\u6001\u66F4\u65B0\u53C2\u6570\u65E0\u6548");
@@ -6018,6 +6030,15 @@ async function updateTaskStatuses(project, input) {
   }
 }
 
+// packages/core/src/daemon/diagnostics.mjs
+var diagnosticsHtml = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>\u4EFB\u52A1\u753B\u5E03\u8BCA\u65AD</title>
+<style>body{margin:0;background:#f5f6f8;color:#1f2937;font:14px system-ui}main{max-width:960px;margin:48px auto;padding:0 20px}h1{font-size:22px;margin-bottom:8px}p{color:#667085;line-height:1.6}.card{background:white;border:1px solid #e5e7eb;border-radius:12px;padding:20px;margin-top:16px}#status{font-weight:600}table{border-collapse:collapse;width:100%;text-align:left}th,td{border-bottom:1px solid #eef0f3;padding:10px 8px;vertical-align:top}th{color:#667085;font-size:12px}td{word-break:break-word}.muted{color:#667085}</style></head>
+<body><main><h1>\u4EFB\u52A1\u753B\u5E03 \xB7 \u8FDE\u63A5\u8BCA\u65AD</h1><p>\u6BCF 3 \u79D2\u66F4\u65B0\u3002\u8BB0\u5F55\u6765\u81EA\u672C\u673A hook \u811A\u672C\uFF1B\u63A8\u9001\u8FDE\u63A5\u6570\u5305\u542B\u6240\u6709\u8BA2\u9605\u7684\u753B\u5E03\uFF0C\u4E0D\u80FD\u8BC1\u660E Codex \u753B\u5E03\u5DF2\u8FDE\u63A5\u3002</p><section class="card"><div id="status">\u6B63\u5728\u8BFB\u53D6\u2026</div><p id="summary"></p></section><section class="card"><h2>\u6700\u8FD1\u7684 hook \u8BB0\u5F55</h2><p>\u201C\u901A\u77E5\u6210\u529F\u201D\u8868\u793A daemon \u5DF2\u54CD\u5E94\uFF0C\u4E0D\u4EE3\u8868\u753B\u5E03\u5DF2\u7ECF\u6536\u5230\u3002\u6CA1\u6709\u8BB0\u5F55\u53EF\u80FD\u662F hook \u672A\u8FD0\u884C\u3001\u672A\u83B7\u4FE1\u4EFB\uFF0C\u6216\u811A\u672C\u65E0\u6CD5\u5199\u5165\u65E5\u5FD7\u3002</p><table><thead><tr><th>\u65F6\u95F4</th><th>Hook</th><th>\u9636\u6BB5</th><th>\u7ED3\u679C</th></tr></thead><tbody id="events"></tbody></table></section></main>
+<script>
+async function refresh(){try{const r=await fetch('/api/diagnostics',{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);const d=await r.json();document.querySelector('#status').textContent='Daemon \u8FD0\u884C\u4E2D \xB7 \u66F4\u65B0\u4E8E '+new Date().toLocaleTimeString();document.querySelector('#summary').textContent='\u63A8\u9001\u8FDE\u63A5\u6570\uFF1A'+d.listeners+' \xB7 daemon \u6700\u8FD1\u6536\u5230\uFF1A'+(d.lastNotification ? d.lastNotification.hook+' \xB7 '+new Date(d.lastNotification.at).toLocaleString() : '\u6682\u65E0')+' \xB7 \u672C\u6B21\u901A\u77E5\u7684\u8FDE\u63A5\u6570\uFF1A'+(d.lastNotification?.listeners ?? '\u2014');const body=document.querySelector('#events');body.replaceChildren();if(!d.events.length){const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=4;td.textContent='\u6682\u65E0\u8BB0\u5F55';tr.append(td);body.append(tr)}for(const item of d.events){const tr=document.createElement('tr');for(const value of [new Date(item.at).toLocaleString(),item.hook,item.stage,item.detail || '\u2014']){const td=document.createElement('td');td.textContent=value;tr.append(td)}body.append(tr)}}catch(e){document.querySelector('#status').textContent='\u8BFB\u53D6\u5931\u8D25\uFF1A'+e.message}}refresh();setInterval(refresh,3000);
+</script></body></html>`;
+
 // packages/core/src/daemon/index.mjs
 var stateDir = process.env.TASK_FIRST_STATE_DIR || path2.join(
   os.tmpdir(),
@@ -6025,8 +6046,34 @@ var stateDir = process.env.TASK_FIRST_STATE_DIR || path2.join(
 );
 var stateFile = path2.join(stateDir, "daemon.json");
 var secret = randomBytes(32).toString("hex");
-var port = 49152 + createHash("sha256").update(path2.resolve(stateDir)).digest().readUInt16BE(0) % 16384;
+var port = process.env.TASK_FIRST_DEV === "1" ? 0 : 49152 + createHash("sha256").update(path2.resolve(stateDir)).digest().readUInt16BE(0) % 16384;
 var canvasFile = fileURLToPath(new URL("./widget.html", import.meta.url));
+var listeners = /* @__PURE__ */ new Set();
+var lastNotification = null;
+async function recentHookEvents() {
+  let file;
+  try {
+    file = await open(path2.join(stateDir, "hooks.jsonl"), "r");
+    const { size } = await file.stat();
+    const length = Math.min(size, 128 * 1024);
+    const buffer = Buffer.alloc(length);
+    const { bytesRead } = await file.read(buffer, 0, length, size - length);
+    const lines = buffer.subarray(0, bytesRead).toString("utf8").split("\n");
+    if (size > length)
+      lines.shift();
+    return lines.flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    }).slice(-100).reverse();
+  } catch {
+    return [];
+  } finally {
+    await file?.close();
+  }
+}
 var canvasCache = null;
 async function readCanvasHtml() {
   const info = await stat(canvasFile);
@@ -6055,8 +6102,36 @@ var server = createServer(async (req, res) => {
     return;
   }
   const requestUrl = new URL(req.url, `http://127.0.0.1:${server.address().port}`);
+  if (req.method === "GET" && (requestUrl.pathname === "/diagnostics" || requestUrl.pathname === "/api/diagnostics")) {
+    if (req.headers.origin && req.headers.origin !== requestUrl.origin || req.headers["sec-fetch-site"] === "cross-site") {
+      res.writeHead(403).end();
+      return;
+    }
+    if (requestUrl.pathname === "/diagnostics") {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'");
+      res.end(diagnosticsHtml);
+    } else {
+      res.end(JSON.stringify({ listeners: listeners.size, lastNotification, events: await recentHookEvents() }));
+    }
+    return;
+  }
+  if (req.method === "GET" && requestUrl.pathname === "/events") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Access-Control-Allow-Origin": "*",
+      "Connection": "keep-alive",
+      "Cache-Control": "no-cache"
+    });
+    res.write(": connected\n\n");
+    listeners.add(res);
+    req.on("close", () => listeners.delete(res));
+    return;
+  }
   if (requestUrl.pathname === "/api/tasks" && (req.method === "GET" || req.method === "POST")) {
-    const args = { projectDir: requestUrl.searchParams.get("projectDir"), taskPath: requestUrl.searchParams.get("taskPath") };
+    const dirs = requestUrl.searchParams.getAll("projectDir");
+    const tasks = requestUrl.searchParams.getAll("taskPath");
+    const pairs = dirs.map((projectDir, index) => ({ projectDir, taskPath: tasks[index] || void 0 }));
     if (req.headers.origin && req.headers.origin !== requestUrl.origin) {
       res.writeHead(403).end(JSON.stringify({ error: "\u8BF7\u6C42\u6765\u6E90\u65E0\u6548" }));
       return;
@@ -6066,10 +6141,10 @@ var server = createServer(async (req, res) => {
       return;
     }
     try {
-      if (!args.projectDir || !args.taskPath)
-        throw Error("\u7F3A\u5C11\u9879\u76EE\u6216\u4EFB\u52A1\u8DEF\u5F84");
+      if (!pairs.length || pairs.some((pair) => !pair.projectDir))
+        throw Error("\u7F3A\u5C11\u9879\u76EE\u8DEF\u5F84");
       if (req.method === "GET") {
-        res.end(JSON.stringify(await getTaskData(args)));
+        res.end(JSON.stringify(await getMultiRepoData(pairs)));
       } else {
         let body = "";
         for await (const chunk of req) {
@@ -6077,7 +6152,9 @@ var server = createServer(async (req, res) => {
           if (body.length > 2 * 1024 * 1024)
             throw Error("\u8BF7\u6C42\u8FC7\u5927");
         }
-        res.end(JSON.stringify(await updateTaskStatuses(args, JSON.parse(body))));
+        const input = JSON.parse(body);
+        const target = pairs.find((pair) => pair.projectDir === input.projectDir) ?? pairs[0];
+        res.end(JSON.stringify(await updateTaskStatuses({ ...target, taskPath: input.taskPath || target.taskPath }, input)));
       }
     } catch (error) {
       res.writeHead(req.method === "GET" ? 400 : 409).end(JSON.stringify({ error: error.message }));
@@ -6093,6 +6170,32 @@ var server = createServer(async (req, res) => {
     res.end(JSON.stringify({ name: "task-first-daemon", version: 5 }));
     return;
   }
+  if (req.method === "POST" && req.url === "/refresh") {
+    let body = "";
+    for await (const chunk of req) {
+      body += chunk;
+      if (body.length > 1024) {
+        res.writeHead(413).end();
+        return;
+      }
+    }
+    let hook;
+    try {
+      hook = JSON.parse(body || "{}").hook;
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
+    const source = ["PostToolUse", "Stop"].includes(hook) ? hook : null;
+    lastNotification = { hook: source, at: (/* @__PURE__ */ new Date()).toISOString(), listeners: listeners.size };
+    for (const listener of listeners)
+      listener.write(`event: refresh
+data: ${JSON.stringify({ hook: source })}
+
+`);
+    res.end("{}");
+    return;
+  }
   if (req.method === "POST" && req.url === "/canvas-data") {
     try {
       let body = "";
@@ -6102,9 +6205,19 @@ var server = createServer(async (req, res) => {
           throw Error("Request too large");
       }
       const input = JSON.parse(body);
-      const data = await getTaskData(input);
-      const query = new URLSearchParams({ projectDir: data.projectDir, taskPath: data.taskPath });
-      res.end(JSON.stringify({ ...data, canvasUrl: `http://127.0.0.1:${server.address().port}/canvas?${query}` }));
+      const projectDirs = input.projectDirs;
+      if (!Array.isArray(projectDirs) || !projectDirs.length)
+        throw Error("\u7F3A\u5C11 projectDirs");
+      const multiResult = await getMultiRepoData(projectDirs);
+      const { repos } = multiResult;
+      const query = new URLSearchParams();
+      for (const repo of repos) {
+        if (repo.taskPath) {
+          query.append("projectDir", repo.projectDir);
+          query.append("taskPath", repo.taskPath);
+        }
+      }
+      res.end(JSON.stringify({ ...multiResult, canvasUrl: `http://127.0.0.1:${server.address().port}/canvas?${query}` }));
     } catch (error) {
       res.writeHead(400).end(JSON.stringify({ error: error.message }));
     }
@@ -6127,6 +6240,8 @@ var temp = `${stateFile}.${process.pid}`;
 await writeFile2(temp, JSON.stringify(state), { mode: 384 });
 await rename(temp, stateFile);
 async function stop() {
+  for (const listener of listeners)
+    listener.end();
   server.close();
   try {
     const current = JSON.parse(
